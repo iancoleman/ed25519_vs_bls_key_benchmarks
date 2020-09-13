@@ -2,7 +2,9 @@ use ed25519_dalek::{Keypair, Signer};
 use rand::RngCore;
 use rand::thread_rng;
 use rand::prelude::ThreadRng;
+use sha2::{Digest, Sha512};
 use threshold_crypto::SecretKey;
+use tiny_keccak::{Hasher, Sha3};
 use time::precise_time_ns;
 
 const NUM_TESTS: usize = 1000;
@@ -23,6 +25,10 @@ fn main() {
     results.push(verify_bls("BLS Verify 1MiB (µs)".to_string(), 1024*1024));
     results.push(verify_ed25519("ED25519 Verify 32B (µs)".to_string(), 32));
     results.push(verify_ed25519("ED25519 Verify 1MiB (µs)".to_string(), 1024*1024));
+    results.push(sha2_512("SHA2-512 32B (µs)".to_string(), 32));
+    results.push(sha2_512("SHA2-512 1MiB (µs)".to_string(), 1024*1024));
+    results.push(sha3_256("SHA3-256 32B (µs)".to_string(), 32));
+    results.push(sha3_256("SHA3-256 1MiB (µs)".to_string(), 1024*1024));
     // show results
     // headings
     let results_headings: Vec<String> = results.iter().map(|r| r.heading.clone()).collect();
@@ -40,6 +46,10 @@ fn main() {
         "=AVERAGE(G5:G1004)",
         "=AVERAGE(H5:H1004)",
         "=AVERAGE(I5:I1004)",
+        "=AVERAGE(J5:J1004)",
+        "=AVERAGE(K5:K1004)",
+        "=AVERAGE(L5:L1004)",
+        "=AVERAGE(M5:M1004)",
     ];
     println!("{}", averages.join(","));
     // medians
@@ -53,6 +63,10 @@ fn main() {
         "=MEDIAN(G5:G1004)",
         "=MEDIAN(H5:H1004)",
         "=MEDIAN(I5:I1004)",
+        "=MEDIAN(J5:J1004)",
+        "=MEDIAN(K5:K1004)",
+        "=MEDIAN(L5:L1004)",
+        "=MEDIAN(M5:M1004)",
     ];
     println!("{}", medians.join(","));
     // stdevs
@@ -66,6 +80,10 @@ fn main() {
         "=STDEV(G5:G1004)",
         "=STDEV(H5:H1004)",
         "=STDEV(I5:I1004)",
+        "=STDEV(J5:J1004)",
+        "=STDEV(K5:K1004)",
+        "=STDEV(L5:L1004)",
+        "=STDEV(M5:M1004)",
     ];
     println!("{}", stdevs.join(","));
     // values
@@ -146,6 +164,47 @@ fn verify_ed25519(heading: String, msg_len: usize) -> Result {
         let sig = kp.sign(&msg);
         let before = precise_time_ns();
         let _verified = kp.verify(&msg, &sig);
+        let d = precise_time_ns() - before;
+        result.values[i] = d as f64 / 1000.0;
+    }
+    result
+}
+
+// used by ed25519-dalek sign
+// https://github.com/dalek-cryptography/ed25519-dalek/blob/master/src/secret.rs#L406
+fn sha2_512(heading: String, msg_len: usize) -> Result {
+    let mut result = Result{
+        heading: heading,
+        values: [0_f64; NUM_TESTS],
+    };
+    for i in 0..NUM_TESTS {
+        let mut msg = vec![0u8; msg_len];
+        rand::thread_rng().fill_bytes(&mut msg);
+        let mut h = Sha512::new();
+        let before = precise_time_ns();
+        h.update(&msg);
+        let _hash = h.finalize();
+        let d = precise_time_ns() - before;
+        result.values[i] = d as f64 / 1000.0;
+    }
+    result
+}
+
+// used by threshold_crypto sign
+// https://github.com/poanetwork/threshold_crypto/blob/7709462f2df487ada3bb3243060504b5881f2628/src/util.rs#L3
+fn sha3_256(heading: String, msg_len: usize) -> Result {
+    let mut result = Result{
+        heading: heading,
+        values: [0_f64; NUM_TESTS],
+    };
+    for i in 0..NUM_TESTS {
+        let mut msg = vec![0u8; msg_len];
+        rand::thread_rng().fill_bytes(&mut msg);
+        let mut sha3 = Sha3::v256();
+        let mut output = [0u8; 32];
+        let before = precise_time_ns();
+        sha3.update(&msg);
+        sha3.finalize(&mut output);
         let d = precise_time_ns() - before;
         result.values[i] = d as f64 / 1000.0;
     }

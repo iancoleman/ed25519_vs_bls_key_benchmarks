@@ -9,5 +9,7 @@ edition = "2018"
 [dependencies]
 ed25519-dalek = "1.0.0"
 rand = "0.7.3"
+sha2 = { version = "0.9", default-features = false }
 threshold_crypto = "0.4.0"
+tiny-keccak = { version = "2.0.1", features = ["sha3"] }
 time = "0.1"
