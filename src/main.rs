@@ -3,9 +3,11 @@ use rand::RngCore;
 use rand::thread_rng;
 use rand::prelude::ThreadRng;
 use sha2::{Digest, Sha512};
-use threshold_crypto::SecretKey;
 use tiny_keccak::{Hasher, Sha3};
 use time::precise_time_ns;
+
+use blst::min_sig::SecretKey as BlstSecretKey;
+use threshold_crypto::SecretKey as TcSecretKey;
 
 const NUM_TESTS: usize = 1000;
 
@@ -16,13 +18,17 @@ struct Result {
 
 fn main() {
     let mut results = vec![];
-    // bls signatures
-    results.push(sign_bls("BLS Sign 32B (µs)".to_string(), 32));
-    results.push(sign_bls("BLS Sign 1MiB (µs)".to_string(), 1024*1024));
+    // do tests and get results
+    results.push(sign_bls_threshold_crypto("BLS TC Sign 32B (µs)".to_string(), 32));
+    results.push(sign_bls_threshold_crypto("BLS TC Sign 1MiB (µs)".to_string(), 1024*1024));
+    results.push(sign_bls_blst("BLS BLST Sign 32B (µs)".to_string(), 32));
+    results.push(sign_bls_blst("BLS BLST Sign 1MiB (µs)".to_string(), 1024*1024));
     results.push(sign_ed25519("ED25519 Sign 32B (µs)".to_string(), 32));
     results.push(sign_ed25519("ED25519 Sign 1MiB (µs)".to_string(), 1024*1024));
-    results.push(verify_bls("BLS Verify 32B (µs)".to_string(), 32));
-    results.push(verify_bls("BLS Verify 1MiB (µs)".to_string(), 1024*1024));
+    results.push(verify_bls_threshold_crypto("BLS TC Verify 32B (µs)".to_string(), 32));
+    results.push(verify_bls_threshold_crypto("BLS TC Verify 1MiB (µs)".to_string(), 1024*1024));
+    results.push(verify_bls_blst("BLS BLST Verify 32B (µs)".to_string(), 32));
+    results.push(verify_bls_blst("BLS BLST Verify 1MiB (µs)".to_string(), 1024*1024));
     results.push(verify_ed25519("ED25519 Verify 32B (µs)".to_string(), 32));
     results.push(verify_ed25519("ED25519 Verify 1MiB (µs)".to_string(), 1024*1024));
     results.push(sha2_512("SHA2-512 32B (µs)".to_string(), 32));
@@ -98,17 +104,38 @@ fn main() {
     }
 }
 
-fn sign_bls(heading: String, msg_len: usize) -> Result {
+fn sign_bls_threshold_crypto(heading: String, msg_len: usize) -> Result {
     let mut result = Result{
         heading: heading,
         values: [0_f64; NUM_TESTS],
     };
     for i in 0..NUM_TESTS {
-        let bls_sk = SecretKey::random();
+        let bls_sk = TcSecretKey::random();
         let mut msg = vec![0u8; msg_len];
         rand::thread_rng().fill_bytes(&mut msg);
         let before = precise_time_ns();
         let _sig = bls_sk.sign(msg);
+        let d = precise_time_ns() - before;
+        result.values[i] = d as f64 / 1000.0;
+    }
+    result
+}
+
+fn sign_bls_blst(heading: String, msg_len: usize) -> Result {
+    let mut result = Result{
+        heading: heading,
+        values: [0_f64; NUM_TESTS],
+    };
+    for i in 0..NUM_TESTS {
+        // blst
+        let mut ikm = vec![0u8; 32];
+        rand::thread_rng().fill_bytes(&mut ikm);
+        let bls_sk = BlstSecretKey::key_gen(&ikm, &[]).unwrap();
+        let mut msg = vec![0u8; msg_len];
+        rand::thread_rng().fill_bytes(&mut msg);
+        let dst = b"BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_NUL_";
+        let before = precise_time_ns();
+        let _sig = bls_sk.sign(&msg, dst, &[]);
         let d = precise_time_ns() - before;
         result.values[i] = d as f64 / 1000.0;
     }
@@ -133,18 +160,40 @@ fn sign_ed25519(heading: String, msg_len: usize) -> Result {
     result
 }
 
-fn verify_bls(heading: String, msg_len: usize) -> Result {
+fn verify_bls_threshold_crypto(heading: String, msg_len: usize) -> Result {
     let mut result = Result{
         heading: heading,
         values: [0_f64; NUM_TESTS],
     };
     for i in 0..NUM_TESTS {
-        let bls_sk = SecretKey::random();
+        let bls_sk = TcSecretKey::random();
         let mut msg = vec![0u8; msg_len];
         rand::thread_rng().fill_bytes(&mut msg);
         let sig = bls_sk.sign(&msg);
         let before = precise_time_ns();
         let _verified = bls_sk.public_key().verify(&sig, &msg);
+        let d = precise_time_ns() - before;
+        result.values[i] = d as f64 / 1000.0;
+    }
+    result
+}
+
+fn verify_bls_blst(heading: String, msg_len: usize) -> Result {
+    let mut result = Result{
+        heading: heading,
+        values: [0_f64; NUM_TESTS],
+    };
+    for i in 0..NUM_TESTS {
+        let mut ikm = vec![0u8; 32];
+        rand::thread_rng().fill_bytes(&mut ikm);
+        let bls_sk = BlstSecretKey::key_gen(&ikm, &[]).unwrap();
+        let pk = bls_sk.sk_to_pk();
+        let mut msg = vec![0u8; msg_len];
+        rand::thread_rng().fill_bytes(&mut msg);
+        let dst = b"BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_NUL_";
+        let sig = bls_sk.sign(&msg, dst, &[]);
+        let before = precise_time_ns();
+        let _verified = sig.verify(&msg, dst, &[], &pk);
         let d = precise_time_ns() - before;
         result.values[i] = d as f64 / 1000.0;
     }
